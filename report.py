@@ -8,63 +8,60 @@ from datetime import datetime
 TICKER = "ENGI.PA"
 LOG_FILE = "/home/ubuntu/daily_report_log.csv"
 
-def calculate_metrics(df):
-    """Calcule Volatilité et Max Drawdown sur l'historique récupéré"""
-    # Rendements journaliers
+def calculate_daily_volatility(df):
+    """Calcule la Volatilité JOURNALIÈRE moyenne sur l'historique"""
     returns = df['Close'].pct_change().dropna()
-
-    # 1. Volatilité Annualisée (Standard Deviation * racine(252 jours))
     if len(returns) > 0:
-        vol_ann = returns.std() * np.sqrt(252)
+        # Écart-type des rendements quotidiens 
+        
+        return returns.std()
     else:
-        vol_ann = 0
-
-    # 2. Max Drawdown
-    cum_ret = (1 + returns).cumprod()
-    peak = cum_ret.cummax()
-    drawdown = (cum_ret - peak) / peak
-    max_dd = drawdown.min()
-
-    return vol_ann, max_dd
+        return 0
 
 def job():
-    # On récupère 1 an de données pour que la Volatilité et le Drawdown aient du sens
     print(f"Récupération des données pour {TICKER}...")
+    # On garde 1 an d'historique pour avoir une statistique fiable
     data = yf.download(TICKER, period="1y", interval="1d", progress=False)
 
     if data.empty:
         print("Erreur: Pas de données récupérées.")
         return
 
-    # Gestion du format MultiIndex de yfinance (v0.2+)
+    # Gestion du format MultiIndex
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
 
-    # Calculs
-    vol_ann, max_dd = calculate_metrics(data)
+    # 1. Calcul de la Volatilité Journalière
+    vol_day = calculate_daily_volatility(data)
 
-    # Valeurs du jour (Dernière ligne)
+    # 2. Récupération des données DU JOUR
     last_row = data.iloc[-1]
     last_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    open_p = last_row['Open']
-    close_p = last_row['Close']
-    high_p = last_row['High']
-    low_p = last_row['Low']
-
-    # Formatage de la ligne CSV
-    # Ordre: Date, Ticker, Open, Close, High, Low, Volatility, Max_Drawdown
-    row = f"{last_date},{TICKER},{open_p:.2f},{close_p:.2f},{high_p:.2f},{low_p:.2f},{vol_ann:.2%},{max_dd:.2%}\n"
     
-    # Écriture dans le fichier (Mode 'a' pour append/ajouter à la fin)
-    # Création de l'entête si le fichier n'existe pas
+    open_p = float(last_row['Open'])
+    close_p = float(last_row['Close'])
+    high_p = float(last_row['High'])
+    low_p = float(last_row['Low'])
+
+    # 3. Calcul du Max Drawdown DU JOUR 
+    if high_p > 0:
+        daily_max_dd = (low_p - high_p) / high_p
+    else:
+        daily_max_dd = 0.0
+
+    
+    # Ordre: Date, Ticker, Open, Close, High, Low, Volatility_Daily, Max_Drawdown_Day
+    row = f"{last_date},{TICKER},{open_p:.2f},{close_p:.2f},{high_p:.2f},{low_p:.2f},{vol_day:.2%},{daily_max_dd:.2%}\n"
+    
+    # Écriture dans le fichier
     file_exists = os.path.isfile(LOG_FILE)
     with open(LOG_FILE, "a") as f:
         if not file_exists:
-            f.write("Date,Ticker,Open,Close,High,Low,Volatility_Ann,Max_Drawdown\n")
+            # En-tête mis à jour
+            f.write("Date,Ticker,Open,Close,High,Low,Volatility_Daily,Max_Drawdown_Day\n")
         f.write(row)
 
-    print(f"Rapport généré avec succès dans {LOG_FILE}")
-    print(f"Données: {row.strip()}")
+    print(f"Rapport généré : {row.strip()}")
 
 if __name__ == "__main__":
     job()
