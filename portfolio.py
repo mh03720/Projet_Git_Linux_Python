@@ -53,16 +53,23 @@ def optimize_sma_params(df):
     return best_params, best_ret
 
 def module_market_analysis():
-    st.header("Market Analysis (Single Asset)")
-    ticker = st.sidebar.selectbox("Rechercher un Actif", AVAILABLE_ASSETS, index=AVAILABLE_ASSETS.index("ENGI.PA") if "ENGI.PA" in AVAILABLE_ASSETS else 0)
+        from app import (
+        fetch_data as _fetch_data,
+        strategy_sma as _strategy_sma,
+        strategy_rsi as _strategy_rsi,
+        get_advanced_metrics as _get_advanced_metrics,
+        get_ml_forecast as _get_ml_forecast,
+    )
+st.header("Market Analysis (Single Asset)")
+ticker = st.sidebar.selectbox("Rechercher un Actif", AVAILABLE_ASSETS, index=AVAILABLE_ASSETS.index("ENGI.PA") if "ENGI.PA" in AVAILABLE_ASSETS else 0)
     
     # Ajout de 1d, 5d, 1mo pour voir le court terme
-    period = st.sidebar.selectbox("Périodicité", ["1d", "5d", "1mo", "6mo", "1y", "2y", "5y", "max"])
+period = st.sidebar.selectbox("Périodicité", ["1d", "5d", "1mo", "6mo", "1y", "2y", "5y", "max"])
     
-    strat_choice = st.sidebar.radio("Stratégie", ["SMA Crossover", "RSI Momentum"])
+strat_choice = st.sidebar.radio("Stratégie", ["SMA Crossover", "RSI Momentum"])
 
-    data = fetch_data(ticker, period)
-    if data is not None:
+data = _fetch_data(ticker, period)
+if data is not None:
         st.sidebar.markdown("---")
         st.sidebar.subheader("Auto-Optimisation")
         default_s, default_l = 20, 50
@@ -84,8 +91,8 @@ def module_market_analysis():
             var = ((cur_price - prev)/prev)*100
             st.metric(f"Prix Actuel ({ticker})", f"{cur_price:.2f} €/$", f"{var:+.2f} %")
 
-        processed = strategy_sma(data, p1, p2) if strat_choice == "SMA Crossover" else strategy_rsi(data, p1)
-        metrics = get_advanced_metrics(processed)
+        processed = _strategy_sma(data, p1, p2) if strat_choice == "SMA Crossover" else strategy_rsi(data, p1)
+        metrics = _get_advanced_metrics(processed)
         
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name="Prix Réel", line=dict(color='gray', width=1)))
@@ -93,7 +100,7 @@ def module_market_analysis():
         fig.add_trace(go.Scatter(x=data.index, y=metrics["cum_strat"] * init_p, name="Stratégie", line=dict(color='#00CCFF', width=2)))
         
         if st.sidebar.checkbox("Prédiction ML"):
-            dates, preds, err = get_ml_forecast(data)
+            dates, preds, err = _get_ml_forecast(data)
             fig.add_trace(go.Scatter(x=dates, y=preds, name="Forecast", line=dict(color='orange')))
             fig.add_trace(go.Scatter(x=list(dates)+list(dates)[::-1], y=list(preds+err)+list(preds-err)[::-1], fill='toself', fillcolor='rgba(255,165,0,0.2)', line=dict(color='rgba(0,0,0,0)')))
 
@@ -103,4 +110,4 @@ def module_market_analysis():
         c2.metric("Max DD", metrics["max_dd"])
         c3.metric("Win Rate", metrics["win_rate"])
         c4.metric("Total Ret", metrics["total_ret"])
-    else: st.error("Données indisponibles (Marché fermé ou Ticker invalide).")
+else: st.error("Données indisponibles (Marché fermé ou Ticker invalide).")
