@@ -111,3 +111,84 @@ if data is not None:
         c3.metric("Win Rate", metrics["win_rate"])
         c4.metric("Total Ret", metrics["total_ret"])
 else: st.error("Données indisponibles (Marché fermé ou Ticker invalide).")
+
+def module_portfolio_sim():
+    st.header("Portfolio Simulator")
+    default_sel = [x for x in ["MC.PA", "TTE.PA", "BTC-USD"] if x in AVAILABLE_ASSETS]
+    tickers = st.sidebar.multiselect("Actifs (Min 3)", AVAILABLE_ASSETS, default=default_sel)
+    
+    # Choix de l'horizon pour le 5 minutes
+    st.sidebar.markdown("---")
+    time_mode = st.sidebar.radio("Horizon Temporel", ["Historique (2 ans)", "Live (5 jours / 5 min)"])
+    
+    if len(tickers) < 3:
+        st.warning("Sélectionnez au moins 3 actifs.")
+        return
+
+    # Logique pour adapter la période
+    if time_mode == "Historique (2 ans)":
+        p, i = "2y", "1d"
+    else:
+        p, i = "5d", "5m" # Mode Live : 5 derniers jours, intervalle 5 minutes
+
+    # Téléchargement des données avec l'intervalle choisi
+    data = yf.download(tickers, period=p, interval=i, progress=False)['Close']
+    
+    if not data.empty:
+        # Forward fill pour aligner les cryptos (24/7) et les actions (9-17h) en mode 5m
+        data = data.ffill().dropna()
+        returns = data.pct_change().dropna()
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.markdown("Configuration")
+            w_type = st.radio("Mode", ["Équipondéré", "Personnalisé"])
+            rebalance = st.selectbox("Rééquilibrage", ["Quotidien (Constant Mix)", "Aucun (Buy & Hold)"])
+        
+        weights = []
+        if w_type == "Équipondéré":
+            weights = np.array([1/len(tickers)] * len(tickers))
+            with col2:
+                fig_pie = px.pie(names=tickers, values=weights, title="Allocation Cible")
+                fig_pie.update_layout(height=250, margin=dict(l=20, r=20, t=30, b=0))
+                st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            with col2:
+                st.markdown("Poids (Score 1-10)")
+                cols_sliders = st.columns(3)
+                raw_scores = []
+                for i, t in enumerate(tickers):
+                    score = cols_sliders[i % 3].slider(f"{t}", 1, 10, 5)
+                    raw_scores.append(score)
+                weights = np.array(raw_scores) / sum(raw_scores)
+                fig_pie = px.pie(values=weights, names=tickers, title="Allocation Réelle (%)")
+                fig_pie.update_layout(height=300, margin=dict(l=20, r=20, t=30, b=0))
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+        if rebalance == "Quotidien (Constant Mix)":
+            port_ret = returns.dot(weights)
+            cum_port = (1 + port_ret).cumprod() - 1
+        else:
+            norm_prices = data / data.iloc[0]
+            w_prices = norm_prices * weights
+            port_val = w_prices.sum(axis=1)
+            cum_port = port_val - 1
+            port_ret = port_val.pct_change().dropna()
+        
+        cum_assets = (1 + returns).cumprod() - 1
+        tot = cum_port.iloc[-1] * 100
+        
+       
+        vol = port_ret.std() * np.sqrt(252) * 100
+        sharpe = (port_ret.mean() / port_ret.std()) * np.sqrt(252)
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Rendement", f"{tot:+.2f} %")
+        k2.metric("Volatilité (Annu.)", f"{vol:.2f} %")
+        k3.metric("Sharpe", f"{sharpe:.2f}")
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=cum_port.index, y=cum_port*100, name="PORTEFEUILLE", line=dict(color='#FF2B2B', width=4)))
+        for t in tickers:
+            fig.add_trace(go.Scatter(x=cum_assets.index, y=cum_assets[t]*100, name=t, opacity=0.4))
+        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(px.imshow(returns.corr(), text_auto=True, color_continuous_scale='RdBu_r'), use_container_width=True)
