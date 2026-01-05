@@ -192,3 +192,33 @@ def module_portfolio_sim():
             fig.add_trace(go.Scatter(x=cum_assets.index, y=cum_assets[t]*100, name=t, opacity=0.4))
         st.plotly_chart(fig, use_container_width=True)
         st.plotly_chart(px.imshow(returns.corr(), text_auto=True, color_continuous_scale='RdBu_r'), use_container_width=True)
+
+
+def module_reports():
+    st.header("Rapports Automatiques (Cron)")
+    st.write("Ce module affiche le contenu du fichier `daily_report_log.csv` généré automatiquement par le serveur.")
+    
+    log_path = "/home/ubuntu/daily_report_log.csv"
+    
+    if os.path.exists(log_path):
+        try:
+            df_log = pd.read_csv(log_path)
+            st.success(f"Fichier trouvé ! {len(df_log)} rapports générés.")
+            st.dataframe(df_log.sort_index(ascending=False), use_container_width=True)
+            with open(log_path, "rb") as file:
+                st.download_button("Télécharger le CSV complet", file, "daily_report_log.csv", "text/csv")
+        except Exception as e:
+            st.error(f"Erreur lors de la lecture du fichier : {e}")
+    else:
+        st.warning("Le fichier de rapport n'existe pas encore. Attendez 20h00 ou lancez le script manuellement.")
+
+
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Aller à :", ["Market Analysis", "Portfolio Simulator", "Rapports Automatiques"])
+
+if page == "Market Analysis":
+    module_market_analysis()
+elif page == "Portfolio Simulator":
+    module_portfolio_sim()
+else:
+    module_reports()
