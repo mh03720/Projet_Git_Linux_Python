@@ -22,6 +22,26 @@ AVAILABLE_ASSETS = [
 ]
 AVAILABLE_ASSETS.sort()
 
+def fetch_data(ticker, period):
+    try:
+       
+        interval = "1d" 
+        
+        if period == "1d":
+            interval = "5m"  
+        elif period == "5d":
+            interval = "15m" 
+        elif period == "1mo":
+            interval = "90m" 
+            
+        
+        data = yf.download(ticker, period=period, interval=interval, progress=False)
+        
+        if data.empty: return None
+        if isinstance(data.columns, pd.MultiIndex): 
+            data.columns = data.columns.get_level_values(0)
+        return data
+    except: return None
 
 def get_current_price(ticker):
     try:
@@ -52,24 +72,71 @@ def optimize_sma_params(df):
                 best_params = (s, l)
     return best_params, best_ret
 
+def strategy_sma(df, short_w, long_w):
+    d = df.copy()
+    d['SMA_S'] = d['Close'].rolling(window=short_w).mean()
+    d['SMA_L'] = d['Close'].rolling(window=long_w).mean()
+    d['Signal'] = np.where(d['SMA_S'] > d['SMA_L'], 1, 0)
+    return d
+
+def strategy_rsi(df, window=14):
+    d = df.copy()
+    delta = d['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    d['RSI'] = 100 - (100 / (1 + rs))
+    d['Signal'] = np.where(d['RSI'] < 30, 1, np.where(d['RSI'] > 70, 0, np.nan))
+    d['Signal'] = d['Signal'].ffill().fillna(0)
+    return d
+
+def get_advanced_metrics(df):
+    returns = df['Close'].pct_change().dropna()
+    strat_returns = df['Signal'].shift(1) * returns
+    cum_strategy = (1 + strat_returns.fillna(0)).cumprod()
+    cum_asset = (1 + returns.fillna(0)).cumprod()
+    sharpe = (strat_returns.mean() / strat_returns.std()) * np.sqrt(252) if strat_returns.std() != 0 else 0
+    peak = cum_strategy.cummax()
+    drawdown = (cum_strategy - peak) / peak
+    max_dd = drawdown.min()
+    vol = strat_returns.std() * np.sqrt(252)
+    win_rate = len(strat_returns[strat_returns > 0]) / len(strat_returns[strat_returns != 0]) if len(strat_returns[strat_returns != 0]) > 0 else 0
+    return {
+        "cum_strat": cum_strategy,
+        "cum_asset": cum_asset,
+        "sharpe": round(float(sharpe), 2),
+        "max_dd": f"{round(float(max_dd * 100), 2)}%",
+        "vol": f"{round(float(vol * 100), 2)}%",
+        "win_rate": f"{round(win_rate * 100, 1)}%",
+        "total_ret": f"{round((cum_strategy.iloc[-1]-1)*100, 2)}%"
+    }
+
+def get_ml_forecast(df, days_to_forecast=10):
+    d_ml = df[['Close']].reset_index()
+    d_ml['Time_Index'] = np.arange(len(d_ml))
+    X = d_ml[['Time_Index']]
+    y = d_ml['Close']
+    model = LinearRegression()
+    model.fit(X, y)
+    last_date = d_ml.iloc[-1, 0] 
+    future_dates = [last_date + timedelta(days=i) for i in range(1, days_to_forecast + 1)]
+    future_indices = np.array([len(d_ml) + i for i in range(days_to_forecast)]).reshape(-1, 1)
+    preds = model.predict(future_indices)
+    residuals = y - model.predict(X)
+    std_error = np.std(residuals)
+    return future_dates, preds, std_error
+
 def module_market_analysis():
-        from app import (
-        fetch_data as _fetch_data,
-        strategy_sma as _strategy_sma,
-        strategy_rsi as _strategy_rsi,
-        get_advanced_metrics as _get_advanced_metrics,
-        get_ml_forecast as _get_ml_forecast,
-    )
-st.header("Market Analysis (Single Asset)")
-ticker = st.sidebar.selectbox("Rechercher un Actif", AVAILABLE_ASSETS, index=AVAILABLE_ASSETS.index("ENGI.PA") if "ENGI.PA" in AVAILABLE_ASSETS else 0)
+    st.header("Market Analysis (Single Asset)")
+    ticker = st.sidebar.selectbox("Rechercher un Actif", AVAILABLE_ASSETS, index=AVAILABLE_ASSETS.index("ENGI.PA") if "ENGI.PA" in AVAILABLE_ASSETS else 0)
     
     # Ajout de 1d, 5d, 1mo pour voir le court terme
-period = st.sidebar.selectbox("Périodicité", ["1d", "5d", "1mo", "6mo", "1y", "2y", "5y", "max"])
+    period = st.sidebar.selectbox("Périodicité", ["1d", "5d", "1mo", "6mo", "1y", "2y", "5y", "max"])
     
-strat_choice = st.sidebar.radio("Stratégie", ["SMA Crossover", "RSI Momentum"])
+    strat_choice = st.sidebar.radio("Stratégie", ["SMA Crossover", "RSI Momentum"])
 
-data = _fetch_data(ticker, period)
-if data is not None:
+    data = fetch_data(ticker, period)
+    if data is not None:
         st.sidebar.markdown("---")
         st.sidebar.subheader("Auto-Optimisation")
         default_s, default_l = 20, 50
@@ -91,8 +158,8 @@ if data is not None:
             var = ((cur_price - prev)/prev)*100
             st.metric(f"Prix Actuel ({ticker})", f"{cur_price:.2f} €/$", f"{var:+.2f} %")
 
-        processed = _strategy_sma(data, p1, p2) if strat_choice == "SMA Crossover" else strategy_rsi(data, p1)
-        metrics = _get_advanced_metrics(processed)
+        processed = strategy_sma(data, p1, p2) if strat_choice == "SMA Crossover" else strategy_rsi(data, p1)
+        metrics = get_advanced_metrics(processed)
         
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name="Prix Réel", line=dict(color='gray', width=1)))
@@ -100,7 +167,7 @@ if data is not None:
         fig.add_trace(go.Scatter(x=data.index, y=metrics["cum_strat"] * init_p, name="Stratégie", line=dict(color='#00CCFF', width=2)))
         
         if st.sidebar.checkbox("Prédiction ML"):
-            dates, preds, err = _get_ml_forecast(data)
+            dates, preds, err = get_ml_forecast(data)
             fig.add_trace(go.Scatter(x=dates, y=preds, name="Forecast", line=dict(color='orange')))
             fig.add_trace(go.Scatter(x=list(dates)+list(dates)[::-1], y=list(preds+err)+list(preds-err)[::-1], fill='toself', fillcolor='rgba(255,165,0,0.2)', line=dict(color='rgba(0,0,0,0)')))
 
@@ -110,7 +177,7 @@ if data is not None:
         c2.metric("Max DD", metrics["max_dd"])
         c3.metric("Win Rate", metrics["win_rate"])
         c4.metric("Total Ret", metrics["total_ret"])
-else: st.error("Données indisponibles (Marché fermé ou Ticker invalide).")
+    else: st.error("Données indisponibles (Marché fermé ou Ticker invalide).")
 
 def module_portfolio_sim():
     st.header("Portfolio Simulator")
