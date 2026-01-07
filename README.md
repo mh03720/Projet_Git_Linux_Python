@@ -21,3 +21,6 @@ Le défi principal était de maintenir l'application active même après la ferm
 
 Pour répondre aux exigences de reporting, nous avons mis en place un script Python autonome nommé report.py. Ce script est exécuté automatiquement chaque jour à 20h00 par le gestionnaire de tâches cron du serveur.
 Concrètement, ce script télécharge les données de l'action de référence (Engie), calcule la volatilité journalière ainsi que le Max Drawdown de la journée en cours, et sauvegarde ces informations dans un fichier CSV sur le serveur.
+
+**Lancer le projet**
+Pour le projet, il faut récupérer sur notre dossier Github le fichier portfolio.py(pour tout le site), le fichier report.py, avoir une clé AWS et un dossier où mettre les rapports journaliers. Pas besoin de récupérer le fichier app.py, il servait pour la partie Quant A mais a été complètement intégré à portfolio.py nous avons laissé app.py dans le main juste pour montrer le merge de la partie Quant A.
