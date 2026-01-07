@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from sklearn.linear_model import LinearRegression
 from streamlit_autorefresh import st_autorefresh
 
+st.set_page_config(page_title="Pro Terminal - Asset Management", layout="wide")
+st_autorefresh(interval=5 * 60 * 1000, key="datarefresh") # Refresh auto toutes les 5 min
 
 AVAILABLE_ASSETS = [
     "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "ADA-USD", "DOGE-USD", "AVAX-USD", "DOT-USD", "MATIC-USD",
@@ -24,17 +26,17 @@ AVAILABLE_ASSETS.sort()
 
 def fetch_data(ticker, period):
     try:
-       
-        interval = "1d" 
+        
+        interval = "1d" # Valeur par défaut (Long terme)
         
         if period == "1d":
-            interval = "5m"  
+            interval = "5m"  # Si on veut voir la journée, on prend du 5 minutes
         elif period == "5d":
-            interval = "15m" 
+            interval = "15m" # Si on veut voir la semaine, on prend du 15 minutes
         elif period == "1mo":
-            interval = "90m" 
+            interval = "90m" # Si on veut voir le mois, on prend du 90 minutes
             
-        
+        # Téléchargement
         data = yf.download(ticker, period=period, interval=interval, progress=False)
         
         if data.empty: return None
@@ -53,7 +55,6 @@ def get_current_price(ticker):
         if isinstance(price, pd.Series): price = price.iloc[0]
         return float(price)
     except: return None
-
 
 def optimize_sma_params(df):
     best_ret = -np.inf
@@ -125,6 +126,7 @@ def get_ml_forecast(df, days_to_forecast=10):
     residuals = y - model.predict(X)
     std_error = np.std(residuals)
     return future_dates, preds, std_error
+
 
 def module_market_analysis():
     st.header("Market Analysis (Single Asset)")
@@ -202,12 +204,16 @@ def module_portfolio_sim():
     data = yf.download(tickers, period=p, interval=i, progress=False)['Close']
     
     if not data.empty:
+        # On force les colonnes à respecter l'ordre exact de la liste 'tickers'
+        # Sinon le poids du premier slider s'applique à la première colonne par ordre alphabétique
+        data = data[tickers]
+
         # Forward fill pour aligner les cryptos (24/7) et les actions (9-17h) en mode 5m
         data = data.ffill().dropna()
         returns = data.pct_change().dropna()
         col1, col2 = st.columns([1, 2])
         with col1:
-            st.markdown("Configuration")
+            st.markdown("##### Configuration")
             w_type = st.radio("Mode", ["Équipondéré", "Personnalisé"])
             rebalance = st.selectbox("Rééquilibrage", ["Quotidien (Constant Mix)", "Aucun (Buy & Hold)"])
         
@@ -220,10 +226,11 @@ def module_portfolio_sim():
                 st.plotly_chart(fig_pie, use_container_width=True)
         else:
             with col2:
-                st.markdown("Poids (Score 1-10)")
+                st.markdown("##### Poids (Score 1-10)")
                 cols_sliders = st.columns(3)
                 raw_scores = []
                 for i, t in enumerate(tickers):
+                    # Le slider i correspond bien à tickers[i] grâce au tri fait plus haut (data = data[tickers])
                     score = cols_sliders[i % 3].slider(f"{t}", 1, 10, 5)
                     raw_scores.append(score)
                 weights = np.array(raw_scores) / sum(raw_scores)
@@ -244,7 +251,6 @@ def module_portfolio_sim():
         cum_assets = (1 + returns).cumprod() - 1
         tot = cum_port.iloc[-1] * 100
         
-       
         vol = port_ret.std() * np.sqrt(252) * 100
         sharpe = (port_ret.mean() / port_ret.std()) * np.sqrt(252)
 
@@ -263,7 +269,7 @@ def module_portfolio_sim():
 
 def module_reports():
     st.header("Rapports Automatiques (Cron)")
-    st.write("Ce module affiche le contenu du fichier `daily_report_log.csv` généré automatiquement par le serveur.")
+    st.write("Ce module affiche le contenu du fichier daily_report_log.csv généré automatiquement par le serveur.")
     
     log_path = "/home/ubuntu/daily_report_log.csv"
     
